@@ -346,23 +346,22 @@ class Model:
 
         def train_step(inputs, targets):
             def closure():
-                if self.amp:
-                    with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=True):
-                        losses = outputs_losses_train(inputs, targets)[1]
-                else:
-                    losses = outputs_losses_train(inputs, targets)[1]
+                losses = outputs_losses_train(inputs, targets)[1]
                 total_loss = torch.sum(losses)
-                if self.amp:
-                    scaler.scale(total_loss).backward()
-                    scaler.step(self.opt)
-                    scaler.update()
-                    self.opt.zero_grad()
-                else:
-                    self.opt.zero_grad()
-                    total_loss.backward()
+                self.opt.zero_grad()
+                total_loss.backward()
                 return total_loss
-
-            self.opt.step(closure)
+            if not self.amp:
+                self.opt.step(closure)
+            else:
+                with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=True):
+                    losses = outputs_losses_train(inputs, targets)[1]
+                    total_loss = torch.sum(losses)
+                scaler.scale(total_loss).backward()
+                scaler.step(self.opt)
+                scaler.update()
+                self.opt.zero_grad()
+            
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
 
