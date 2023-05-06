@@ -64,6 +64,7 @@ class Model:
         decay=None,
         loss_weights=None,
         external_trainable_variables=None,
+        amp=False,
     ):
         """Configures the model for training.
 
@@ -113,6 +114,7 @@ class Model:
         if config.rank == 0:
             print("Compiling model...")
         self.opt_name = optimizer
+        self.amp = amp
         loss_fn = losses_module.get(loss)
         self.losshistory.set_loss_weights(loss_weights)
         if external_trainable_variables is None:
@@ -138,6 +140,10 @@ class Model:
             self._compile_jax(lr, loss_fn, decay, loss_weights)
         elif backend_name == "paddle":
             self._compile_paddle(lr, loss_fn, decay, loss_weights)
+        if backend_name != "pytorch" and amp:
+            raise NotImplementedError(
+                "automatic mixed precision not implemented for non-pytorch backend"
+            )
         # metrics may use model variables such as self.net, and thus are instantiated
         # after backend compile.
         metrics = metrics or []
