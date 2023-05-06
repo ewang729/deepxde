@@ -263,7 +263,7 @@ class Model:
             else train_step_tfp
         )
 
-    def _compile_pytorch(self, lr, loss_fn, decay, loss_weights):
+    def _compile_pytorch(self, lr, loss_fn, decay, loss_weights, amp=False):
         """pytorch"""
 
         def outputs(training, inputs):
@@ -334,13 +334,25 @@ class Model:
                     f"{self.net.regularizer[0]} regularizaiton to be implemented for "
                     "backend pytorch."
                 )
+  
+        if self.amp:
+            scaler = torch.cuda.amp.GradScaler(enabled=True)
 
         def train_step(inputs, targets):
             def closure():
-                losses = outputs_losses_train(inputs, targets)[1]
+                if self.amp:
+                    with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=use_amp):
+                        losses = outputs_losses_train(inputs, targets)[1]
+                else:
+                    losses = outputs_losses_train(inputs, targets)[1]
                 total_loss = torch.sum(losses)
+                if self.amp:
+                    scaler.scale(total_loss).backward()
+                    scaler.step(self.opt)
+                    scaler.update()
+                else:
+                    total_loss.backward()
                 self.opt.zero_grad()
-                total_loss.backward()
                 return total_loss
 
             self.opt.step(closure)
