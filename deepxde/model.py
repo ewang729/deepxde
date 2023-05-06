@@ -347,7 +347,7 @@ class Model:
         def train_step(inputs, targets):
             def closure():
                 if self.amp:
-                    with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=use_amp):
+                    with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=True):
                         losses = outputs_losses_train(inputs, targets)[1]
                 else:
                     losses = outputs_losses_train(inputs, targets)[1]
