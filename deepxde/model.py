@@ -64,6 +64,7 @@ class Model:
         decay=None,
         loss_weights=None,
         external_trainable_variables=None,
+        amp=False,
     ):
         """Configures the model for training.
 
@@ -113,6 +114,7 @@ class Model:
         if config.rank == 0:
             print("Compiling model...")
         self.opt_name = optimizer
+        self.amp = amp
         loss_fn = losses_module.get(loss)
         self.losshistory.set_loss_weights(loss_weights)
         if external_trainable_variables is None:
@@ -138,6 +140,10 @@ class Model:
             self._compile_jax(lr, loss_fn, decay, loss_weights)
         elif backend_name == "paddle":
             self._compile_paddle(lr, loss_fn, decay, loss_weights)
+        if backend_name != "pytorch" and amp:
+            raise NotImplementedError(
+                "automatic mixed precision not implemented for non-pytorch backend"
+            )
         # metrics may use model variables such as self.net, and thus are instantiated
         # after backend compile.
         metrics = metrics or []
@@ -263,7 +269,7 @@ class Model:
             else train_step_tfp
         )
 
-    def _compile_pytorch(self, lr, loss_fn, decay, loss_weights):
+    def _compile_pytorch(self, lr, loss_fn, decay, loss_weights, amp=False):
         """pytorch"""
 
         def outputs(training, inputs):
@@ -334,13 +340,25 @@ class Model:
                     f"{self.net.regularizer[0]} regularizaiton to be implemented for "
                     "backend pytorch."
                 )
+  
+        if self.amp:
+            scaler = torch.cuda.amp.GradScaler(enabled=True)
 
         def train_step(inputs, targets):
             def closure():
-                losses = outputs_losses_train(inputs, targets)[1]
+                if self.amp:
+                    with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=use_amp):
+                        losses = outputs_losses_train(inputs, targets)[1]
+                else:
+                    losses = outputs_losses_train(inputs, targets)[1]
                 total_loss = torch.sum(losses)
+                if self.amp:
+                    scaler.scale(total_loss).backward()
+                    scaler.step(self.opt)
+                    scaler.update()
+                else:
+                    total_loss.backward()
                 self.opt.zero_grad()
-                total_loss.backward()
                 return total_loss
 
             self.opt.step(closure)
