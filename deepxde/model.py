@@ -356,9 +356,10 @@ class Model:
                     scaler.scale(total_loss).backward()
                     scaler.step(self.opt)
                     scaler.update()
+                    self.opt.zero_grad()
                 else:
+                    self.opt.zero_grad()
                     total_loss.backward()
-                self.opt.zero_grad()
                 return total_loss
 
             self.opt.step(closure)
