@@ -36,6 +36,7 @@ class Model:
         self.external_trainable_variables = []
         self.train_state = TrainState()
         self.losshistory = LossHistory()
+        self.memoryhistory = MemoryHistory()
         self.stop_training = False
 
         # Backend-dependent attributes
@@ -65,6 +66,7 @@ class Model:
         loss_weights=None,
         external_trainable_variables=None,
         amp=False,
+        track_memory = False
     ):
         """Configures the model for training.
 
@@ -115,6 +117,7 @@ class Model:
             print("Compiling model...")
         self.opt_name = optimizer
         self.amp = amp
+        self.track_memory = track_memory
         loss_fn = losses_module.get(loss)
         self.losshistory.set_loss_weights(loss_weights)
         if external_trainable_variables is None:
@@ -346,21 +349,37 @@ class Model:
 
         def train_step(inputs, targets):
             def closure():
+                if self.track_memory:
+                    torch.cuda.reset_max_memory_allocated()
                 losses = outputs_losses_train(inputs, targets)[1]
                 total_loss = torch.sum(losses)
+                if self.track_memory:
+                    memory_forward = torch.cuda.max_memory_allocated()
+                    torch.cuda.reset_max_memory_allocated()
                 self.opt.zero_grad()
                 total_loss.backward()
+                if self.track_memory:
+                    memory_backward = torch.cuda.max_memory_allocated()
+                    self.memoryhistory.append(self.trainstate.step, memory_forward, memory_backward)
                 return total_loss
             if not self.amp:
                 self.opt.step(closure)
             else:
+                if self.track_memory:
+                        torch.cuda.reset_max_memory_allocated()
                 with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=True):
                     losses = outputs_losses_train(inputs, targets)[1]
                     total_loss = torch.sum(losses)
+                if self.track_memory:
+                    memory_forward = torch.cuda.max_memory_allocated()
+                    torch.cuda.reset_max_memory_allocated()
                 scaler.scale(total_loss).backward()
                 scaler.step(self.opt)
                 scaler.update()
                 self.opt.zero_grad()
+                if self.track_memory:
+                    memory_backward = torch.cuda.max_memory_allocated()
+                    self.memoryhistory.append(self.trainstate.step, memory_forward, memory_backward)
             
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
@@ -1165,3 +1184,14 @@ class LossHistory:
             metrics_test = self.metrics_test[-1]
         self.loss_test.append(loss_test)
         self.metrics_test.append(metrics_test)
+        
+class MemoryHistory:
+    def __init__(self):
+        self.steps = []
+        self.memory_forward = []
+        self.memory_backward = []
+    
+    def append(self, step, memory_forward, memory_backward):
+        self.steps.append(step)
+        self.memory_forward.append(memory_forward)
+        self.memory_backward.append(memory_backward)
