@@ -360,7 +360,7 @@ class Model:
                 total_loss.backward()
                 if self.track_memory:
                     memory_backward = torch.cuda.max_memory_allocated()
-                    self.memoryhistory.append(self.trainstate.step, memory_forward, memory_backward)
+                    self.memoryhistory.append(self.train_state.step, memory_forward, memory_backward)
                 return total_loss
             if not self.amp:
                 self.opt.step(closure)
@@ -379,7 +379,7 @@ class Model:
                 self.opt.zero_grad()
                 if self.track_memory:
                     memory_backward = torch.cuda.max_memory_allocated()
-                    self.memoryhistory.append(self.trainstate.step, memory_forward, memory_backward)
+                    self.memoryhistory.append(self.train_state.step, memory_forward, memory_backward)
             
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
