@@ -15,6 +15,7 @@ from . import utils
 from .backend import backend_name, tf, torch, jax, paddle
 from .callbacks import CallbackList
 from .utils import list_to_str
+import time
 
 
 class Model:
@@ -37,6 +38,7 @@ class Model:
         self.train_state = TrainState()
         self.losshistory = LossHistory()
         self.memoryhistory = MemoryHistory()
+        self.timehistory = TimeHistory()
         self.stop_training = False
 
         # Backend-dependent attributes
@@ -66,7 +68,8 @@ class Model:
         loss_weights=None,
         external_trainable_variables=None,
         amp=False,
-        track_memory = False
+        track_memory = False,
+        track_time = False
     ):
         """Configures the model for training.
 
@@ -118,6 +121,7 @@ class Model:
         self.opt_name = optimizer
         self.amp = amp
         self.track_memory = track_memory
+        self.track_time = track_time
         loss_fn = losses_module.get(loss)
         self.losshistory.set_loss_weights(loss_weights)
         if external_trainable_variables is None:
@@ -350,36 +354,52 @@ class Model:
         def train_step(inputs, targets):
             def closure():
                 if self.track_memory:
+                    memory_other = torch.cuda.max_memory_allocated()
                     torch.cuda.reset_max_memory_allocated()
+                if self.track_time:
+                    step_start_time = time.time()
                 losses = outputs_losses_train(inputs, targets)[1]
                 total_loss = torch.sum(losses)
                 if self.track_memory:
                     memory_forward = torch.cuda.max_memory_allocated()
                     torch.cuda.reset_max_memory_allocated()
+                if self.track_time:
+                    step_mid_time = time.time()
                 self.opt.zero_grad()
                 total_loss.backward()
                 if self.track_memory:
                     memory_backward = torch.cuda.max_memory_allocated()
-                    self.memoryhistory.append(self.train_state.step, memory_forward, memory_backward)
+                    self.memoryhistory.append(self.train_state.step, memory_forward, memory_backward, memory_other)
+                if self.track_time:
+                    step_end_time = time.time()
+                    self.timehistory.append(self.train_state.step, step_mid_time - step_start_time, step_end_time - step_mid_time)
                 return total_loss
             if not self.amp:
                 self.opt.step(closure)
             else:
                 if self.track_memory:
-                        torch.cuda.reset_max_memory_allocated()
+                    memory_other = torch.cuda.max_memory_allocated()
+                    torch.cuda.reset_max_memory_allocated()
+                if self.track_time:
+                    step_start_time = time.time()
                 with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=True):
                     losses = outputs_losses_train(inputs, targets)[1]
                     total_loss = torch.sum(losses)
                 if self.track_memory:
                     memory_forward = torch.cuda.max_memory_allocated()
                     torch.cuda.reset_max_memory_allocated()
+                if self.track_time:
+                    step_mid_time = time.time()
                 scaler.scale(total_loss).backward()
                 scaler.step(self.opt)
                 scaler.update()
                 self.opt.zero_grad()
                 if self.track_memory:
                     memory_backward = torch.cuda.max_memory_allocated()
-                    self.memoryhistory.append(self.train_state.step, memory_forward, memory_backward)
+                    self.memoryhistory.append(self.train_state.step, memory_forward, memory_backward, memory_other)
+                if self.track_time:
+                    step_end_time = time.time()
+                    self.timehistory.append(self.train_state.step, step_mid_time - step_start_time, step_end_time - step_mid_time)
             
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
@@ -1190,8 +1210,24 @@ class MemoryHistory:
         self.steps = []
         self.memory_forward = []
         self.memory_backward = []
+        self.memory_other = []
     
-    def append(self, step, memory_forward, memory_backward):
+    def append(self, step, memory_forward, memory_backward, memory_other):
         self.steps.append(step)
         self.memory_forward.append(memory_forward)
         self.memory_backward.append(memory_backward)
+        self.memory_other.append(memory_other)
+        
+class TimeHistory:
+    def __init__(self):
+        self.start_time = time.time()
+        self.steps = []
+        self.time_forward = []
+        self.time_backward = []
+        self.time_total = []
+    
+    def append(self, step, time_forward, time_backward):
+        self.steps.append(step)
+        self.time_forward.append(time_forward)
+        self.time_backward.append(time_backward)
+        self.time_total.append(time.time() - self.start_time)
