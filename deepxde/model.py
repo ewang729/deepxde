@@ -354,22 +354,23 @@ class Model:
         def train_step(inputs, targets):
             def closure():
                 if self.track_memory:
-                    memory_other = torch.cuda.max_memory_allocated()
-                    torch.cuda.reset_max_memory_allocated()
+                    memory_other = torch.cuda.memory_stats()['active_bytes.all.peak']
+                    torch.cuda.reset_peak_memory_stats()
                 if self.track_time:
                     step_start_time = time.time()
                 losses = outputs_losses_train(inputs, targets)[1]
                 total_loss = torch.sum(losses)
                 if self.track_memory:
-                    memory_forward = torch.cuda.max_memory_allocated()
-                    torch.cuda.reset_max_memory_allocated()
+                    memory_forward = torch.cuda.memory_stats()['active_bytes.all.peak']
+                    torch.cuda.reset_peak_memory_stats()
                 if self.track_time:
                     step_mid_time = time.time()
                 self.opt.zero_grad()
                 total_loss.backward()
                 if self.track_memory:
-                    memory_backward = torch.cuda.max_memory_allocated()
+                    memory_backward = torch.cuda.memory_stats()['active_bytes.all.peak']
                     self.memoryhistory.append(self.train_state.step, memory_forward, memory_backward, memory_other)
+                    torch.cuda.reset_peak_memory_stats()
                 if self.track_time:
                     step_end_time = time.time()
                     self.timehistory.append(self.train_state.step, step_mid_time - step_start_time, step_end_time - step_mid_time)
@@ -378,16 +379,16 @@ class Model:
                 self.opt.step(closure)
             else:
                 if self.track_memory:
-                    memory_other = torch.cuda.max_memory_allocated()
-                    torch.cuda.reset_max_memory_allocated()
+                    memory_other = torch.cuda.memory_stats()['active_bytes.all.peak']
+                    torch.cuda.reset_peak_memory_stats()
                 if self.track_time:
                     step_start_time = time.time()
                 with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=True):
                     losses = outputs_losses_train(inputs, targets)[1]
                     total_loss = torch.sum(losses)
                 if self.track_memory:
-                    memory_forward = torch.cuda.max_memory_allocated()
-                    torch.cuda.reset_max_memory_allocated()
+                    memory_forward = torch.cuda.memory_stats()['active_bytes.all.peak']
+                    torch.cuda.reset_peak_memory_stats()
                 if self.track_time:
                     step_mid_time = time.time()
                 scaler.scale(total_loss).backward()
@@ -395,8 +396,9 @@ class Model:
                 scaler.update()
                 self.opt.zero_grad()
                 if self.track_memory:
-                    memory_backward = torch.cuda.max_memory_allocated()
+                    memory_backward = torch.cuda.memory_stats()['active_bytes.all.peak']
                     self.memoryhistory.append(self.train_state.step, memory_forward, memory_backward, memory_other)
+                    torch.cuda.reset_peak_memory_stats()
                 if self.track_time:
                     step_end_time = time.time()
                     self.timehistory.append(self.train_state.step, step_mid_time - step_start_time, step_end_time - step_mid_time)
