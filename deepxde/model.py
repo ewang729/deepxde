@@ -27,6 +27,7 @@ class Model:
     """
 
     def __init__(self, data, net):
+        self.total_data = data
         self.data = data
         self.net = net
 
