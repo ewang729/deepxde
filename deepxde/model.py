@@ -70,7 +70,8 @@ class Model:
         external_trainable_variables=None,
         amp=False,
         track_memory = False,
-        track_time = False
+        track_time = False,
+        testing = True
     ):
         """Configures the model for training.
 
@@ -123,6 +124,7 @@ class Model:
         self.amp = amp
         self.track_memory = track_memory
         self.track_time = track_time
+        self.testing = testing
         loss_fn = losses_module.get(loss)
         self.losshistory.set_loss_weights(loss_weights)
         if external_trainable_variables is None:
@@ -716,7 +718,8 @@ class Model:
             self.train_state.epoch += 1
             self.train_state.step += 1
             if self.train_state.step % display_every == 0 or i + 1 == iterations:
-                self._test()
+                if self.testing:
+                    self._test()
 
             self.callbacks.on_batch_end()
             self.callbacks.on_epoch_end()
