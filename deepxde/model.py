@@ -718,8 +718,7 @@ class Model:
             self.train_state.epoch += 1
             self.train_state.step += 1
             if self.train_state.step % display_every == 0 or i + 1 == iterations:
-                if self.testing:
-                    self._test()
+                self._test()
 
             self.callbacks.on_batch_end()
             self.callbacks.on_epoch_end()
@@ -863,6 +862,8 @@ class Model:
                 break
 
     def _test(self):
+        if not self.testing:
+            return
         # TODO Now only print the training loss in rank 0. The correct way is to print the average training loss of all ranks.
         (
             self.train_state.y_pred_train,
